@@ -153,6 +153,12 @@ export const useAppStore = defineStore('app', () => {
     if (ok) locked.value = false
     return ok
   }
+  /** 仅校验 PIN，不改变锁定状态 */
+  async function checkPin(pin: string): Promise<boolean> {
+    const h = localStorage.getItem(PIN_KEY)
+    if (!h) return false
+    return (await sha256('lg:' + pin)) === h
+  }
   function hasPin() { return !!localStorage.getItem(PIN_KEY) }
   function clearPin() { localStorage.removeItem(PIN_KEY); locked.value = false }
   function lockNow() { if (hasPin()) locked.value = true }
@@ -160,6 +166,6 @@ export const useAppStore = defineStore('app', () => {
   return {
     accounts, currentAccountId, currentAccount, ctx, currentProject, target, locked, booting,
     load, setAccount, setProject, addAccount, updateAccount, removeAccount, checkAccount,
-    exportBackup, importBackup, setPin, unlock, hasPin, clearPin, lockNow
+    exportBackup, importBackup, setPin, unlock, checkPin, hasPin, clearPin, lockNow
   }
 })

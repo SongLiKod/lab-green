@@ -11,7 +11,7 @@ function genCode(): string {
   return String(n % 1000000).padStart(6, '0')
 }
 
-/** 发送验证码邮件；模板变量名可自定义（收件人/主题/正文），成功后把哈希与有效期存本地 */
+/** 发送验证码邮件：与 EmailJS REST /api/v1.0/email/send 标准一致，仅需 public key，无 accessToken */
 export async function sendResetCode(cfg: EmailCfg): Promise<void> {
   if (!cfg.service || !cfg.template || !cfg.publicKey || !cfg.to) throw new Error('EmailJS 配置不完整')
   const code = genCode()
@@ -33,7 +33,8 @@ export async function sendResetCode(cfg: EmailCfg): Promise<void> {
       template_params: params
     })
   })
-  if (!resp.ok) throw new Error('邮件发送失败：' + (await resp.text()).slice(0, 120))
+  const text = await resp.text()
+  if (!resp.ok) throw new Error(`EmailJS ${resp.status}：${text || '请检查 Service/Template/Public Key 及模板 To 字段是否引用收件人变量'}`)
   const salt = genCode() + Date.now()
   const hash = await sha256(salt + ':' + code)
   localStorage.setItem(RKEY, JSON.stringify({ salt, hash, exp: Date.now() + 600000, tries: 0 }))
