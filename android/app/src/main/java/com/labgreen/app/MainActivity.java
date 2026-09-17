@@ -53,12 +53,11 @@ public class MainActivity extends Activity {
         });
         webView.setDownloadListener(new DownloadListener() {
             @Override
-            public void onDownload(String url, String ua, String contentDisp, String mimeType, long contentLength) {
+            public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
                 try {
                     DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-                    req.allowScanningByMediaScanner();
                     req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                    req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, guessName(url, contentDisp));
+                    req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, guessName(url, contentDisposition));
                     DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                     dm.enqueue(req);
                     Toast.makeText(MainActivity.this, "开始下载", Toast.LENGTH_SHORT).show();
