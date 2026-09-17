@@ -12,7 +12,15 @@ const statusFilter = ref('')
 const page = ref(1); const per = 15; const total = ref(0)
 const rows = ref<any[]>([])
 const loading = ref(false)
+const refreshing = ref(false)
 const jobsMap = reactive<Record<number, any[]>>({})
+const expandedPipes = ref<number[]>([])
+
+const statusOptions = [
+  { text: '全部状态', value: '' }, { text: 'success', value: 'success' }, { text: 'failed', value: 'failed' },
+  { text: 'running', value: 'running' }, { text: 'pending', value: 'pending' }, { text: 'canceled', value: 'canceled' }
+]
+const vanTag: any = { success: 'success', failed: 'danger', running: 'primary', pending: 'warning', canceled: 'default', skipped: 'default', manual: 'primary' }
 
 async function load() {
   if (!app.target) { rows.value = []; return }
@@ -20,32 +28,37 @@ async function load() {
   try {
     const r: any = await pipelines(app.target.acct, app.target.projectId, { status: statusFilter.value || undefined, page: page.value, per })
     rows.value = r.rows || []; total.value = r.total
-  } catch (e: any) { ElMessage.error(e.message) } finally { loading.value = false }
+  } catch (e: any) { ElMessage.error(e.message) } finally { loading.value = false; refreshing.value = false }
 }
 watch(() => app.target?.projectId, load)
 onMounted(load)
 
-async function expand(row: any, open: boolean) {
-  if (!open || !app.target) return
+async function expand(row: any, open?: boolean) {
+  if (!app.target) return
+  if (jobsMap[row.id] && open !== true) return
   try { jobsMap[row.id] = await pipelineJobs(app.target.acct, app.target.projectId, row.id) as any } catch (e: any) { ElMessage.error(e.message) }
+}
+function onCollapseChange(names: any[]) {
+  const p = rows.value.find((r) => r.iid === names[names.length - 1])
+  if (p) expand(p, true)
 }
 
 async function doRetry(row: any) { await retryPipeline(app.target!.acct, app.target!.projectId, row.id); await addLog('流水线', `重跑 #${row.id}`, 'info'); load() }
 async function doCancel(row: any) { await cancelPipeline(app.target!.acct, app.target!.projectId, row.id); await addLog('流水线', `取消 #${row.id}`, 'warn'); load() }
 
 /* job 操作与日志 */
-const logDlg = reactive({ show: false, text: '', jobId: 0, pipelineId: 0, loading: false })
+const logDlg = reactive({ show: false, text: '', jobId: 0, loading: false })
 async function showLog(job: any) {
+  if (!job?.id) return
   Object.assign(logDlg, { show: true, text: '', jobId: job.id, loading: true })
   try { logDlg.text = await jobTrace(app.target!.acct, app.target!.projectId, job.id) as any } catch (e: any) { ElMessage.error(e.message) } finally { logDlg.loading = false }
 }
-function downloadLog() { downloadText(`job-${logDlg.jobId}.log`, logDlg.text) }
 async function jobAction(job: any, act: 'retry' | 'cancel' | 'play') {
   const t = app.target!
   try {
     await ({ retry: retryJob, cancel: cancelJob, play: playJob }[act])(t.acct, t.projectId, job.id)
     await addLog('流水线', `${act} job ${job.name} (#${job.id})`, 'info')
-    if (jobsMap[job.pipeline?.id]) expand(job.pipeline, true)
+    expand(job.pipeline || { id: job.pipeline_id }, true)
     load()
   } catch (e: any) { ElMessage.error(e.message) }
 }
@@ -89,9 +102,12 @@ async function delVar(v: any) {
 </script>
 
 <template>
-  <div>
-    <el-alert v-if="!app.target" title="请先选择当前项目" type="info" :closable="false" style="margin-bottom:12px" />
-    <template v-else>
+  <div v-if="!app.target && !mobile" style="margin-bottom:12px"><el-alert title="请先选择当前项目" type="info" :closable="false" /></div>
+  <van-empty v-else-if="!app.target && mobile" description="请先在「项目」页选择当前项目" />
+
+  <template v-if="app.target">
+    <!-- ================= 桌面 ================= -->
+    <template v-if="!mobile">
       <div class="lg-toolbar">
         <el-select v-model="statusFilter" placeholder="状态筛选" clearable size="small" style="width:140px" @change="(page = 1, load())">
           <el-option v-for="s in ['success', 'failed', 'running', 'pending', 'canceled', 'skipped']" :key="s" :value="s" :label="s" />
@@ -100,9 +116,8 @@ async function delVar(v: any) {
         <el-button size="small" plain @click="openVars">CI/CD 变量</el-button>
         <el-button size="small" type="primary" @click="openRun">手动触发流水线</el-button>
       </div>
-
       <div class="lg-card" v-loading="loading">
-        <el-table v-if="!mobile" :data="rows" size="small">
+        <el-table :data="rows" size="small">
           <el-table-column type="expand" @expand-change="expand">
             <template #default="{ row }">
               <el-table :data="jobsMap[row.id] || []" size="small" style="margin:6px 12px;width:auto">
@@ -133,80 +148,109 @@ async function delVar(v: any) {
             </template>
           </el-table-column>
         </el-table>
-        <template v-else>
-          <div v-for="row in rows" :key="row.id" class="lg-mcard">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <b>#{{ row.iid }} <el-tag size="small" :type="pipelineTagType(row.status)">{{ row.status }}</el-tag></b>
-              <span class="lg-sub">{{ fmtDate(row.created_at) }}</span>
-            </div>
-            <div class="lg-sub">{{ row.ref }} · {{ row.user?.username }}</div>
-            <div style="margin-top:6px">
-              <van-button size="mini" @click="expand(row, true)">加载Job</van-button>
-              <van-button size="mini" style="margin-left:6px" @click="doRetry(row)">重跑</van-button>
-              <van-button size="mini" style="margin-left:6px" @click="jobsMap[row.id] ? null : expand(row, true)">{{ jobsMap[row.id] ? '收起Job' : '展开Job' }}</van-button>
-            </div>
-            <div v-if="jobsMap[row.id]" class="lg-sub" style="margin-top:6px">
-              <div v-for="j in jobsMap[row.id]" :key="j.id">
-                {{ j.name }} <el-tag size="small" :type="pipelineTagType(j.status)">{{ j.status }}</el-tag>
-                <a style="margin-left:6px;color:var(--lg-primary)" @click="showLog(j)">日志</a>
-              </div>
-            </div>
-          </div>
-        </template>
         <div style="margin-top:10px;display:flex;justify-content:flex-end">
           <el-pagination layout="prev, pager, next, total" :total="total" :page-size="per" v-model:current-page="page" @current-change="load" small />
         </div>
       </div>
-
-      <!-- 日志 -->
-      <el-dialog v-model="logDlg.show" :title="`Job #${logDlg.jobId} 日志`" width="860px" top="5vh" :fullscreen="mobile">
-        <div v-loading="logDlg.loading" class="trace">{{ logDlg.text || '（空）' }}</div>
-        <template #footer><el-button @click="downloadLog" :disabled="!logDlg.text">下载日志</el-button><el-button type="primary" @click="logDlg.show = false">关闭</el-button></template>
-      </el-dialog>
-
-      <!-- 触发 -->
-      <el-dialog v-model="runDlg.show" title="手动触发流水线" width="520px">
-        <el-form label-width="70px">
-          <el-form-item label="Ref">
-            <el-select v-model="runDlg.ref" filterable allow-create style="width:100%"><el-option v-for="b in runDlg.branchList" :key="b" :value="b" :label="b" /></el-select>
-          </el-form-item>
-          <el-form-item label="变量">
-            <div style="width:100%">
-              <div v-for="(v, i) in runDlg.vars" :key="i" style="display:flex;gap:6px;margin-bottom:6px">
-                <el-input v-model="v.key" placeholder="KEY" style="width:160px" />
-                <el-input v-model="v.value" placeholder="value" />
-                <el-button @click="runDlg.vars.splice(i, 1)">×</el-button>
-              </div>
-              <el-button size="small" plain @click="runDlg.vars.push({ key: '', value: '' })">+ 添加变量</el-button>
-            </div>
-          </el-form-item>
-        </el-form>
-        <template #footer><el-button @click="runDlg.show = false">取消</el-button><el-button type="primary" :loading="runDlg.saving" @click="doRun">触发</el-button></template>
-      </el-dialog>
-
-      <!-- 变量管理 -->
-      <el-dialog v-model="varDlg.show" title="CI/CD 变量" width="640px">
-        <div v-loading="varDlg.loading">
-          <el-table :data="varDlg.list" size="small" max-height="240">
-            <el-table-column prop="key" label="Key" min-width="140" />
-            <el-table-column prop="variable_type" label="类型" width="90" />
-            <el-table-column label="masked" width="70"><template #default="{ row }">{{ row.masked ? '是' : '否' }}</template></el-table-column>
-            <el-table-column label="操作" width="80"><template #default="{ row }"><el-button size="small" link type="danger" @click="delVar(row)">删除</el-button></template></el-table-column>
-          </el-table>
-          <div style="display:flex;gap:8px;margin-top:12px">
-            <el-input v-model="varDlg.key" placeholder="KEY" style="width:160px" />
-            <el-input v-model="varDlg.value" placeholder="值（敏感值建议勾选 masked）" />
-            <el-select v-model="varDlg.type" style="width:110px"><el-option value="env_var" label="变量" /><el-option value="file" label="文件" /></el-select>
-            <el-checkbox v-model="varDlg.masked">masked</el-checkbox>
-            <el-button type="primary" @click="saveVar">保存</el-button>
-          </div>
-        </div>
-      </el-dialog>
     </template>
-  </div>
+
+    <!-- ================= 移动（Vant） ================= -->
+    <template v-else>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <van-dropdown-menu active-color="#16a34a" style="flex:1;border-radius:8px;overflow:hidden">
+          <van-dropdown-item v-model="statusFilter" :options="statusOptions" @change="(page = 1, load())" />
+        </van-dropdown-menu>
+        <van-button size="small" round type="success" @click="openRun">触发</van-button>
+        <van-button size="small" round plain @click="openVars">变量</van-button>
+      </div>
+      <van-pull-refresh v-model="refreshing" @refresh="(page = 1, load())">
+        <van-collapse v-model="expandedPipes" @change="onCollapseChange">
+          <van-collapse-item v-for="row in rows" :key="row.iid" :name="row.iid">
+            <template #title>
+              <div style="display:flex;align-items:center;gap:6px;width:100%">
+                <b>#{{ row.iid }}</b>
+                <van-tag :type="vanTag[row.status] || 'default'">{{ row.status }}</van-tag>
+                <span class="lg-sub" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.ref }}</span>
+              </div>
+            </template>
+            <div class="lg-sub" style="margin-bottom:8px">{{ shortSha(row.sha) }} · {{ row.user?.username }} · {{ fmtDate(row.created_at) }}</div>
+            <van-cell v-for="j in jobsMap[row.id] || []" :key="j.id" :title="j.name" :label="j.stage" :border="false" style="padding:8px 0">
+              <template #value>
+                <van-tag :type="vanTag[j.status] || 'default'">{{ j.status }}</van-tag>
+              </template>
+              <template #label>
+                <span class="m-job-acts">
+                  <a @click.stop="showLog(j)">日志</a>
+                  <a v-if="j.status === 'failed'" @click.stop="jobAction(j, 'retry')">重跑</a>
+                  <a v-if="j.status === 'manual'" @click.stop="jobAction(j, 'play')">执行</a>
+                  <a v-if="['running', 'pending'].includes(j.status)" style="color:#e6493f" @click.stop="jobAction(j, 'cancel')">取消</a>
+                </span>
+              </template>
+            </van-cell>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <van-button size="mini" plain :disabled="row.status === 'running' || row.status === 'pending'" @click.stop="doRetry(row)">重跑流水线</van-button>
+              <van-button size="mini" plain type="danger" :disabled="!['running', 'pending'].includes(row.status)" @click.stop="doCancel(row)">取消</van-button>
+            </div>
+          </van-collapse-item>
+        </van-collapse>
+        <van-empty v-if="!loading && !rows.length" description="暂无流水线" :image-size="60" />
+      </van-pull-refresh>
+      <div style="text-align:center;padding:10px 0 20px">
+        <van-button v-if="page > 1" size="small" plain @click="page--, load()">上一页</van-button>
+        <span style="margin:0 12px;font-size:13px">{{ page }} / {{ Math.max(1, Math.ceil(total / per)) }}</span>
+        <van-button v-if="page * per < total" size="small" plain @click="page++, load()">下一页</van-button>
+      </div>
+    </template>
+
+    <!-- Job 日志 -->
+    <el-dialog v-model="logDlg.show" :title="`Job #${logDlg.jobId} 日志`" width="860px" top="5vh" :fullscreen="mobile">
+      <div v-loading="logDlg.loading" class="trace">{{ logDlg.text || '（空）' }}</div>
+      <template #footer><el-button @click="downloadText(`job-${logDlg.jobId}.log`, logDlg.text)" :disabled="!logDlg.text">下载日志</el-button><el-button type="primary" @click="logDlg.show = false">关闭</el-button></template>
+    </el-dialog>
+
+    <!-- 触发 -->
+    <el-dialog v-model="runDlg.show" title="手动触发流水线" width="520px" :fullscreen="mobile">
+      <el-form label-width="70px">
+        <el-form-item label="Ref">
+          <el-select v-model="runDlg.ref" filterable allow-create style="width:100%"><el-option v-for="b in runDlg.branchList" :key="b" :value="b" :label="b" /></el-select>
+        </el-form-item>
+        <el-form-item label="变量">
+          <div style="width:100%">
+            <div v-for="(v, i) in runDlg.vars" :key="i" style="display:flex;gap:6px;margin-bottom:6px">
+              <el-input v-model="v.key" placeholder="KEY" style="width:160px" />
+              <el-input v-model="v.value" placeholder="value" />
+              <el-button @click="runDlg.vars.splice(i, 1)">×</el-button>
+            </div>
+            <el-button size="small" plain @click="runDlg.vars.push({ key: '', value: '' })">+ 添加变量</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer><el-button @click="runDlg.show = false">取消</el-button><el-button type="primary" :loading="runDlg.saving" @click="doRun">触发</el-button></template>
+    </el-dialog>
+
+    <!-- 变量管理 -->
+    <el-dialog v-model="varDlg.show" title="CI/CD 变量" width="640px" :fullscreen="mobile">
+      <div v-loading="varDlg.loading">
+        <van-cell-group inset>
+          <van-cell v-for="v in varDlg.list" :key="v.key" :title="v.key" :label="v.variable_type + (v.masked ? ' · masked' : '')">
+            <template #right-icon><van-button size="mini" plain type="danger" @click="delVar(v)">删除</van-button></template>
+          </van-cell>
+          <van-empty v-if="!varDlg.list.length" description="暂无变量" :image-size="50" />
+        </van-cell-group>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <el-input v-model="varDlg.key" placeholder="KEY" style="width:150px" />
+          <el-input v-model="varDlg.value" placeholder="值" style="flex:1;min-width:140px" />
+          <el-select v-model="varDlg.type" style="width:100px"><el-option value="env_var" label="变量" /><el-option value="file" label="文件" /></el-select>
+          <el-checkbox v-model="varDlg.masked">masked</el-checkbox>
+          <el-button type="primary" @click="saveVar">保存</el-button>
+        </div>
+      </div>
+    </el-dialog>
+  </template>
 </template>
 
 <style scoped>
 .grow { flex: 1; }
 .trace { max-height: 60vh; overflow: auto; background: #0d1117; color: #c9d1d9; font-family: Consolas, monospace; font-size: 12px; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+.m-job-acts a { color: var(--lg-primary); margin-right: 10px; font-size: 12px; }
 </style>

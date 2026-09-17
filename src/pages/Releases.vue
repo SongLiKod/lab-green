@@ -86,7 +86,7 @@ async function remove(r: any) {
         </div>
       </div>
 
-      <el-dialog v-model="dlg.show" :title="dlg.editing ? '编辑 Release' : '新建 Release'" width="640px" top="6vh">
+      <el-dialog v-model="dlg.show" :title="dlg.editing ? '编辑 Release' : '新建 Release'" width="640px" top="6vh" :fullscreen="mobile">
         <el-form label-width="80px">
           <el-form-item label="Tag">
             <el-input v-model="dlg.tag" :disabled="dlg.editing" placeholder="如 v1.0.0" />

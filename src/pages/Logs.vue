@@ -29,7 +29,7 @@ async function clearAll() { await clearLogs(); load() }
 
 <template>
   <div>
-    <div class="lg-toolbar">
+    <div class="lg-toolbar" v-if="!mobile">
       <el-select v-model="filter.module" placeholder="模块" clearable size="small" style="width:130px" @change="load">
         <el-option v-for="m in modules" :key="m" :value="m" :label="m" />
       </el-select>
@@ -58,13 +58,28 @@ async function clearAll() { await clearLogs(); load() }
       <div v-if="!rows.length" class="lg-empty">暂无日志</div>
     </div>
     <template v-else>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <van-dropdown-menu active-color="#16a34a" style="flex:1;border-radius:8px;overflow:hidden">
+          <van-dropdown-item v-model="filter.module" :options="[{text:'全部模块',value:''}, ...modules.map(m => ({ text: m, value: m }))]" @change="load" />
+        </van-dropdown-menu>
+        <van-dropdown-menu active-color="#16a34a" style="width:110px;border-radius:8px;overflow:hidden">
+          <van-dropdown-item v-model="filter.level" :options="[{text:'级别',value:''},{text:'info',value:'info'},{text:'warn',value:'warn'},{text:'error',value:'error'}]" @change="load" />
+        </van-dropdown-menu>
+      </div>
+      <van-search v-model="filter.keyword" shape="round" placeholder="搜索日志" @search="load" />
+      <div style="display:flex;gap:8px;padding:0 16px 10px">
+        <van-button size="small" round plain @click="exportCsv">导出</van-button>
+        <van-button size="small" round plain @click="prune">按期清理</van-button>
+        <van-button size="small" round plain type="danger" @click="clearAll">清空</van-button>
+      </div>
       <div v-for="(r, i) in rows" :key="i" class="lg-mcard">
         <div style="display:flex;justify-content:space-between">
           <b>{{ r.module }} · {{ r.action }}</b>
-          <el-tag size="small" :type="r.level === 'error' ? 'danger' : r.level === 'warn' ? 'warning' : 'success'">{{ r.level }}</el-tag>
+          <van-tag :type="r.level === 'error' ? 'danger' : r.level === 'warn' ? 'warning' : 'success'">{{ r.level }}</van-tag>
         </div>
         <div class="lg-sub">{{ fmtDate(r.ts) }} {{ r.detail }}</div>
       </div>
+      <van-empty v-if="!rows.length" description="暂无日志" :image-size="60" />
     </template>
   </div>
 </template>

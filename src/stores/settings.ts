@@ -10,6 +10,14 @@ export interface Settings {
   lockEnabled: boolean
   autoLockMin: number
   lockOnBlur: boolean
+  emailEnabled: boolean
+  emailService: string
+  emailTemplate: string
+  emailPublicKey: string
+  emailTo: string
+  emailToVar: string
+  emailSubjectVar: string
+  emailBodyVar: string
 }
 
 const KEY = 'labgreen_settings'
@@ -22,7 +30,15 @@ const defaults: Settings = {
   logDays: 30,
   lockEnabled: false,
   autoLockMin: 10,
-  lockOnBlur: false
+  lockOnBlur: false,
+  emailEnabled: false,
+  emailService: '',
+  emailTemplate: '',
+  emailPublicKey: '',
+  emailTo: '',
+  emailToVar: 'to_email',
+  emailSubjectVar: 'subject',
+  emailBodyVar: 'message'
 }
 
 export const useSettingsStore = defineStore('settings', () => {

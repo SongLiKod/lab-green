@@ -37,14 +37,45 @@ const menus = [
 ]
 
 const tabs = [
-  { path: '/dashboard', title: '仪表盘', icon: 'home-o' },
+  { path: '/dashboard', title: '仪表盘', icon: 'chart-trending-o' },
   { path: '/project', title: '项目', icon: 'apps-o' },
   { path: '/issue', title: 'Issue', icon: 'notes-o' },
   { path: '/merge', title: '合并', icon: 'exchange' },
-  { path: '/account', title: '我的', icon: 'user-o' }
+  { path: '', title: '更多', icon: 'bars' }
 ]
 
+/* 二级菜单：全部功能宫格 */
+const morePopup = ref(false)
+const allModules = [
+  { path: '/dashboard', title: '仪表盘', icon: 'chart-trending-o' },
+  { path: '/project', title: '项目管理', icon: 'apps-o' },
+  { path: '/account', title: '账号管理', icon: 'manager-o' },
+  { path: '/repo-setting', title: '仓库设置', icon: 'setting-o' },
+  { path: '/branch', title: '分支管理', icon: 'cluster-o' },
+  { path: '/commits', title: '提交历史', icon: 'clock-o' },
+  { path: '/file', title: '文件管理', icon: 'description-o' },
+  { path: '/issue', title: 'Issue', icon: 'notes-o' },
+  { path: '/merge', title: '合并请求', icon: 'exchange' },
+  { path: '/pipeline', title: '流水线', icon: 'play-circle-o' },
+  { path: '/release', title: 'Release', icon: 'gift-o' },
+  { path: '/log', title: '操作日志', icon: 'todo-list-o' },
+  { path: '/settings', title: '设置', icon: 'setting' }
+]
+const activeTab = computed(() => {
+  const i = tabs.findIndex((t) => t.path && t.path === route.path)
+  return i >= 0 ? i : 4
+})
+function onTabChange(i: number) {
+  if (i === 4) { morePopup.value = true; return }
+  if (route.path !== tabs[i].path) router.push(tabs[i].path)
+}
+function gotoModule(path: string) {
+  morePopup.value = false
+  if (route.path !== path) router.push(path)
+}
+
 const pageTitle = computed(() => (route.meta.title as string) || 'LabGreen')
+const isTab = computed(() => tabs.some((t) => t.path === route.path))
 
 function switchAccount(id: string) {
   app.setAccount(id)
@@ -75,7 +106,6 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
 
 watch(() => settings.s.lockEnabled, resetIdle)
 
-const drawer = ref(0)
 </script>
 
 <template>
@@ -121,17 +151,32 @@ const drawer = ref(0)
   <div v-else class="lg-mobile">
     <van-sticky>
       <div class="lg-m-header">
-        <div class="lg-m-title">{{ pageTitle }}</div>
+        <div class="lg-m-title">
+          <van-icon v-if="!isTab" name="arrow-left" class="back-ico" @click="router.back()" />{{ pageTitle }}
+        </div>
         <div class="lg-m-actions">
-          <span>{{ app.currentProject?.pathWithNamespace?.split('/').pop() || '未选项目' }}</span>
+          <span @click="router.push('/project')">{{ app.currentProject?.pathWithNamespace?.split('/').pop() || '未选项目' }}</span>
           <van-icon :name="settings.s.theme === 'dark' ? 'moon' : 'sun-o'" @click="cycleTheme" />
         </div>
       </div>
     </van-sticky>
     <div class="lg-m-body"><router-view /></div>
-    <van-tabbar v-model="drawer" route safe-area-inset-bottom>
-      <van-tabbar-item v-for="t in tabs" :key="t.path" :to="t.path" :icon="t.icon">{{ t.title }}</van-tabbar-item>
+
+    <!-- 底部菜单：4 主 tab + 更多（二级宫格） -->
+    <van-tabbar :model-value="activeTab" active-color="#16a34a" inactive-color="#7d8c82" safe-area-inset-bottom @change="onTabChange">
+      <van-tabbar-item v-for="t in tabs" :key="t.title" :icon="t.icon">{{ t.title }}</van-tabbar-item>
     </van-tabbar>
+
+    <van-popup v-model:show="morePopup" position="bottom" round safe-area-inset-bottom>
+      <div class="m-more-title">全部功能</div>
+      <div class="m-more-grid">
+        <div v-for="m in allModules" :key="m.path" class="m-more-item" :class="{ on: route.path === m.path }" @click="gotoModule(m.path)">
+          <van-icon :name="m.icon" size="24" />
+          <span>{{ m.title }}</span>
+        </div>
+      </div>
+      <div style="padding:10px 16px 16px"><van-button block round @click="morePopup = false">收起</van-button></div>
+    </van-popup>
   </div>
 </template>
 
@@ -147,8 +192,14 @@ const drawer = ref(0)
 .lg-h-left { display: flex; align-items: center; gap: 10px; }
 .lg-main { background: var(--lg-page-bg); padding: 16px; overflow: auto; }
 .lg-m-header { background: var(--lg-side-bg); color: #eafff1; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; }
-.lg-m-title { font-weight: 600; }
+.lg-m-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.back-ico { font-size: 18px; }
 .lg-m-actions { display: flex; gap: 12px; align-items: center; font-size: 12px; max-width: 55%; }
 .lg-m-actions span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lg-m-body { padding: 12px; min-height: calc(100vh - 108px); }
+.m-more-title { text-align: center; font-weight: 600; padding: 16px 0 6px; }
+.m-more-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px 12px; }
+.m-more-item { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; font-size: 12px; border-radius: 10px; color: var(--lg-text); }
+.m-more-item.on { background: var(--el-color-primary-light-9); color: var(--lg-primary); }
+.m-more-item:active { background: var(--lg-page-bg); }
 </style>

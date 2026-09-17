@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { isMobile, timeAgo } from '../utils/misc'
 import { addLog } from '../utils/db'
-import { myProjects, createProject, deleteProject } from '../api/gitlab'
-import { gl } from '../api/request'
+import { myProjects, createProject, deleteProject, gl } from '../api/gitlab'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const app = useAppStore()
-const router = useRouter()
 const mobile = ref(isMobile())
 
 const keyword = ref('')
@@ -19,6 +16,7 @@ const total = ref(0)
 const per = 20
 const rows = ref<any[]>([])
 const loading = ref(false)
+const refreshing = ref(false)
 
 /* 本地置顶/收藏元数据 */
 const META_KEY = 'labgreen_repo_meta'
@@ -33,9 +31,9 @@ async function load() {
     const r: any = await myProjects(app.ctx, { search: keyword.value || undefined, page: page.value, per, owned: onlyOwned.value })
     rows.value = r.rows || []
     total.value = r.total
-  } catch (e: any) { ElMessage.error(e.message) } finally { loading.value = false }
+  } catch (e: any) { ElMessage.error(e.message) } finally { loading.value = false; refreshing.value = false }
 }
-watch(() => [app.currentAccountId, onlyOwned.value], load)
+watch(() => [app.currentAccountId, onlyOwned.value], () => { page.value = 1; load() })
 onMounted(load)
 
 function sorted() {
@@ -50,10 +48,8 @@ function use(row: any) {
 async function toggleStar(row: any) {
   if (!app.ctx) return
   try {
-    if (row.star_count && row.starred !== false) {
-      await gl(app.ctx, `/projects/${row.id}/unstar`, { method: 'post' }).catch(() => {})
-    }
-    const r = await gl(app.ctx, `/projects/${row.id}/star`, { method: 'post' })
+    if (row.star_count) await gl(app.ctx, `/projects/${row.id}/unstar`, { method: 'post' }).catch(() => {})
+    const r: any = await gl(app.ctx, `/projects/${row.id}/star`, { method: 'post' })
     row.star_count = r.star_count
   } catch (e: any) { ElMessage.error(e.message) }
 }
@@ -77,8 +73,8 @@ async function doCreate() {
 }
 
 async function remove(row: any) {
-  await ElMessageBox.confirm(`将永久删除远程项目 ${row.path_with_namespace}，不可恢复！输入项目名确认：`, '危险操作', {
-    type: 'error', inputValidator: (v) => v === row.path ? true : '名称不匹配'
+  await ElMessageBox.confirm(`将永久删除远程项目 ${row.path_with_namespace}，不可恢复！输入项目路径最后一段确认：`, '危险操作', {
+    type: 'error', inputValidator: (v) => (v === row.path ? true : '名称不匹配')
   })
   await deleteProject(app.ctx!, row.id)
   await addLog('项目', `删除远程项目 ${row.path_with_namespace}`, 'error')
@@ -88,7 +84,8 @@ async function remove(row: any) {
 </script>
 
 <template>
-  <div>
+  <!-- ================= 桌面 ================= -->
+  <div v-if="!mobile">
     <div class="lg-toolbar">
       <el-input v-model="keyword" placeholder="全局搜索项目名称" clearable style="width:240px" @keyup.enter="(page = 1, load())" @clear="(page = 1, load())">
         <template #append><el-button @click="(page = 1, load())">搜索</el-button></template>
@@ -97,8 +94,7 @@ async function remove(row: any) {
       <span class="grow"></span>
       <el-button type="primary" @click="createDlg.show = true">新建项目</el-button>
     </div>
-
-    <div class="lg-card" v-loading="loading" v-if="!mobile">
+    <div class="lg-card" v-loading="loading">
       <el-table :data="sorted()" size="small" @row-click="(row: any) => use(row)" style="cursor:pointer">
         <el-table-column width="46">
           <template #default="{ row }">
@@ -110,7 +106,7 @@ async function remove(row: any) {
             <span class="fav" :class="{ on: m(row.id).fav }" @click.stop="m(row.id).fav = !m(row.id).fav, saveMeta()">★</span>
           </template>
         </el-table-column>
-        <el-table-column prop="path_with_namespace" label="项目" min-width="220">
+        <el-table-column label="项目" min-width="220">
           <template #default="{ row }">
             <b>{{ row.path_with_namespace }}</b>
             <el-tag v-if="app.currentProject?.id === row.id" size="small" type="success" style="margin-left:6px">当前</el-tag>
@@ -132,45 +128,59 @@ async function remove(row: any) {
         <el-pagination layout="prev, pager, next, total" :total="total" :page-size="per" v-model:current-page="page" @current-change="load" small />
       </div>
     </div>
-
-    <div v-else v-loading="loading">
-      <div v-for="row in sorted()" :key="row.id" class="lg-mcard" @click="use(row)">
-        <div style="display:flex;justify-content:space-between">
-          <b>{{ row.path_with_namespace }}</b>
-          <span class="fav" :class="{ on: m(row.id).fav }" @click.stop="m(row.id).fav = !m(row.id).fav, saveMeta()">★</span>
-        </div>
-        <div class="lg-sub">{{ row.description || '无描述' }} · {{ timeAgo(row.last_activity_at) }}</div>
-        <div style="margin-top:6px;display:flex;gap:8px">
-          <van-button size="mini" type="success" @click.stop="use(row)">设为当前</van-button>
-          <van-button size="mini" @click.stop="m(row.id).pin = !m(row.id).pin, saveMeta()">{{ m(row.id).pin ? '取消置顶' : '置顶' }}</van-button>
-        </div>
-      </div>
-      <div v-if="!rows.length" class="lg-empty">暂无项目</div>
-      <div style="text-align:center;margin-top:10px">
-        <van-button v-if="page > 1" size="small" @click="page--, load()">上一页</van-button>
-        <span style="margin:0 10px">{{ page }}</span>
-        <van-button v-if="page * per < total" size="small" @click="page++, load()">下一页</van-button>
-      </div>
-    </div>
-
-    <el-dialog v-model="createDlg.show" title="新建远程项目" width="460px">
-      <el-form label-width="90px">
-        <el-form-item label="名称"><el-input v-model="createDlg.name" /></el-form-item>
-        <el-form-item label="路径"><el-input v-model="createDlg.path" placeholder="留空自动生成" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="createDlg.description" /></el-form-item>
-        <el-form-item label="可见性">
-          <el-select v-model="createDlg.visibility" style="width:100%">
-            <el-option value="private" label="私有 private" /><el-option value="internal" label="内部 internal" /><el-option value="public" label="公开 public" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="初始化"><el-switch v-model="createDlg.readme" active-text="生成 README" /></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="createDlg.show = false">取消</el-button><el-button type="primary" :loading="createDlg.saving" @click="doCreate">创建</el-button></template>
-    </el-dialog>
   </div>
+
+  <!-- ================= 移动（Vant） ================= -->
+  <div v-else>
+    <van-search v-model="keyword" shape="round" placeholder="搜索项目名称" @search="(page = 1, load())" @clear="(page = 1, load())" />
+    <div style="display:flex;align-items:center;padding:0 16px 8px;font-size:13px">
+      <van-checkbox v-model="onlyOwned" shape="square" icon-size="16">仅我拥有的</van-checkbox>
+      <span style="flex:1"></span>
+      <van-button size="small" type="success" round icon="plus" @click="createDlg.show = true">新建项目</van-button>
+    </div>
+    <van-pull-refresh v-model="refreshing" @refresh="(page = 1, load())">
+      <van-swipe-cell v-for="row in sorted()" :key="row.id">
+        <van-cell :border="false" class="m-proj" :class="{ 'm-cur': app.currentProject?.id === row.id }" @click="use(row)">
+          <template #title>
+            <span class="fav" :class="{ on: m(row.id).fav }" @click.stop="m(row.id).fav = !m(row.id).fav, saveMeta()">★</span>
+            <b>{{ row.name }}</b>
+            <span class="lg-sub"> / {{ row.path_with_namespace.split('/').slice(0, -1).join('/') }}</span>
+          </template>
+          <template #label>
+            <div class="m-desc">{{ row.description || '无描述' }}</div>
+            <div><van-tag plain>{{ row.visibility }}</van-tag> <van-tag v-if="m(row.id).pin" type="primary" style="margin-left:4px">置顶</van-tag> <span class="lg-sub" style="margin-left:6px">★{{ row.star_count }} · {{ timeAgo(row.last_activity_at) }}</span></div>
+          </template>
+        </van-cell>
+        <template #right>
+          <van-button square type="success" text="设为当前" class="m-swipe-btn" @click="use(row)" />
+          <van-button square type="danger" text="删除" class="m-swipe-btn" @click="remove(row)" />
+        </template>
+      </van-swipe-cell>
+      <van-empty v-if="!loading && !rows.length" description="暂无项目" />
+    </van-pull-refresh>
+    <van-pagination v-if="total > per" v-model="page" :total-items="total" :items-per-page="per" simple @change="load" style="padding:12px 16px" />
+  </div>
+
+  <el-dialog v-model="createDlg.show" title="新建远程项目" width="460px" :fullscreen="mobile">
+    <el-form label-width="90px">
+      <el-form-item label="名称"><el-input v-model="createDlg.name" /></el-form-item>
+      <el-form-item label="路径"><el-input v-model="createDlg.path" placeholder="留空自动生成" /></el-form-item>
+      <el-form-item label="描述"><el-input v-model="createDlg.description" /></el-form-item>
+      <el-form-item label="可见性">
+        <el-select v-model="createDlg.visibility" style="width:100%">
+          <el-option value="private" label="私有 private" /><el-option value="internal" label="内部 internal" /><el-option value="public" label="公开 public" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="初始化"><el-switch v-model="createDlg.readme" active-text="生成 README" /></el-form-item>
+    </el-form>
+    <template #footer><el-button @click="createDlg.show = false">取消</el-button><el-button type="primary" :loading="createDlg.saving" @click="doCreate">创建</el-button></template>
+  </el-dialog>
 </template>
 
 <style scoped>
-.fav { cursor: pointer; color: #b8c4bc; font-size: 16px; }
+.fav { cursor: pointer; color: #b8c4bc; font-size: 16px; margin-right: 4px; }
 .fav.on { color: #f59e0b; }
+.m-proj.m-cur { border-left: 3px solid var(--lg-primary); }
+.m-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70vw; }
+.m-swipe-btn { height: 100%; }
 </style>

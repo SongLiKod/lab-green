@@ -48,12 +48,12 @@ watch(() => [app.currentAccountId, app.currentProject?.id], refresh)
 onMounted(refresh)
 
 const modules = [
-  { path: '/project', title: '项目管理' }, { path: '/branch', title: '分支管理' },
-  { path: '/commits', title: '提交历史' }, { path: '/file', title: '文件管理' },
-  { path: '/issue', title: 'Issue' }, { path: '/merge', title: '合并请求' },
-  { path: '/pipeline', title: '流水线' }, { path: '/release', title: 'Release' },
-  { path: '/repo-setting', title: '仓库设置' }, { path: '/account', title: '账号管理' },
-  { path: '/log', title: '操作日志' }, { path: '/settings', title: '设置' }
+  { path: '/project', title: '项目', icon: 'apps-o' }, { path: '/branch', title: '分支', icon: 'cluster-o' },
+  { path: '/commits', title: '提交', icon: 'clock-o' }, { path: '/file', title: '文件', icon: 'description-o' },
+  { path: '/issue', title: 'Issue', icon: 'notes-o' }, { path: '/merge', title: '合并请求', icon: 'exchange' },
+  { path: '/pipeline', title: '流水线', icon: 'play-circle-o' }, { path: '/release', title: 'Release', icon: 'gift-o' },
+  { path: '/repo-setting', title: '仓库设置', icon: 'setting-o' }, { path: '/account', title: '账号', icon: 'manager-o' },
+  { path: '/log', title: '日志', icon: 'todo-list-o' }, { path: '/settings', title: '设置', icon: 'setting' }
 ]
 </script>
 
@@ -80,8 +80,8 @@ const modules = [
       <el-button v-if="!mobile" type="primary" @click="router.push('/account')">{{ app.currentAccount ? '账号管理' : '去添加账号' }}</el-button>
     </div>
 
-    <!-- 统计 -->
-    <div class="stat-row" v-if="app.currentAccount">
+    <!-- 统计（桌面） -->
+    <div class="stat-row" v-if="app.currentAccount && !mobile">
       <div class="lg-card stat" v-for="s in [
         { k: '项目总数', v: stats.projects, to: '/project' },
         { k: '开启 Issue', v: stats.issues, to: '/issue' },
@@ -92,6 +92,19 @@ const modules = [
         <div class="lg-sub">{{ s.k }}<span v-if="s.k !== '项目总数' && !hasTarget">（需选择项目）</span></div>
       </div>
     </div>
+
+    <!-- 统计（移动 van-grid） -->
+    <van-grid v-else-if="app.currentAccount" :column-num="4" :border="false" class="m-stat">
+      <van-grid-item v-for="s in [
+        { k: '项目', v: stats.projects, to: '/project' },
+        { k: 'Issue', v: stats.issues, to: '/issue' },
+        { k: '合并', v: stats.mrs, to: '/merge' },
+        { k: '流水线', v: stats.pipelines, to: '/pipeline' }
+      ]" :key="s.k" @click="router.push(s.to)">
+        <div class="m-stat-num">{{ s.v }}</div>
+        <div class="lg-sub">{{ s.k }}</div>
+      </van-grid-item>
+    </van-grid>
 
     <!-- 最近项目 -->
     <div class="lg-card" style="margin-top:14px" v-if="app.currentAccount">
@@ -112,12 +125,9 @@ const modules = [
     </div>
 
     <!-- 移动端模块宫格 -->
-    <div class="lg-card" style="margin-top:14px" v-if="mobile">
-      <div class="lg-title">全部功能</div>
-      <div class="mod-grid">
-        <div v-for="m in modules" :key="m.path" class="mod" @click="router.push(m.path)">{{ m.title }}</div>
-      </div>
-    </div>
+    <van-grid v-if="mobile" :column-num="4" :border="false" class="lg-card m-mod">
+      <van-grid-item v-for="m in modules" :key="m.path" :icon="m.icon" :text="m.title" @click="router.push(m.path)" />
+    </van-grid>
   </div>
 </template>
 
@@ -132,4 +142,7 @@ const modules = [
 .stat-num { font-size: 26px; font-weight: 700; color: var(--lg-primary); }
 .mod-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .mod { background: var(--lg-page-bg); border: 1px solid var(--lg-border); border-radius: 8px; padding: 16px 0; text-align: center; font-size: 13px; }
+.m-stat { margin-top: 12px; border-radius: 10px; overflow: hidden; }
+.m-stat-num { font-size: 20px; font-weight: 700; color: var(--lg-primary); }
+.m-mod { margin-top: 12px; }
 </style>
