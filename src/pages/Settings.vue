@@ -4,7 +4,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useAppStore } from '../stores/app'
 import { isMobile } from '../utils/misc'
 import { addLog } from '../utils/db'
-import { sendResetCode } from '../utils/mail'
+import { sendResetCode, sendPinReminder } from '../utils/mail'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const settings = useSettingsStore()
@@ -45,8 +45,20 @@ async function savePin() {
   await app.setPin(pinDlg.p1)
   settings.s.lockEnabled = true
   addLog('设置', pinDlg.hasOld ? '验证原 PIN 后修改 PIN' : '设置应用锁 PIN', 'warn')
-  ElMessage.success('PIN 已保存，应用锁已启用；忘记可通过邮箱验证码或清除数据找回')
   pinDlg.show = false
+  if (settings.s.emailEnabled) {
+    try {
+      await sendPinReminder({
+        service: settings.s.emailService, template: settings.s.emailTemplate, publicKey: settings.s.emailPublicKey, to: settings.s.emailTo,
+        toVar: settings.s.emailToVar, subjectVar: settings.s.emailSubjectVar, bodyVar: settings.s.emailBodyVar
+      }, pinDlg.p1)
+      ElMessage.success('PIN 已保存，口令提醒邮件已发送至 ' + settings.s.emailTo)
+    } catch (e: any) {
+      ElMessage.warning('PIN 已保存，但提醒邮件发送失败：' + e.message)
+    }
+  } else {
+    ElMessage.success('PIN 已保存，应用锁已启用；忘记可通过邮箱验证码或清除数据找回')
+  }
 }
 function lockNow() { app.lockNow() }
 
@@ -157,7 +169,7 @@ async function editNum(key: 'timeout' | 'retries' | 'logDays' | 'autoLockMin', t
         EmailJS 侧必须满足：<br>
         ① 模板 Content 的 <b>To</b> 字段填 <b>{{ hintTo }}</b>（与收件人变量名一致，否则收不到）；<br>
         ② 主题放 <b>{{ hintSubject }}</b>、正文放 <b>{{ hintBody }}</b>；<br>
-        ③ 只需 Public Key，无需 AccessToken；<br>
+        ③ 启用后：设置/修改 PIN、验证码重置 PIN 都会发送<b>口令提醒邮件</b>（含新 PIN，请妥善保管）；<br>
         ④ 发送成功仍没收到时，先检查邮箱<b>垃圾箱</b>。
       </div>
     </div>
