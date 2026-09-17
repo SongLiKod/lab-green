@@ -36,7 +36,8 @@
 
 ```
 ├─ electron/                # Electron 主进程与 preload（本地 Git、文件对话框）
-├─ android/                 # Android WebView 壳说明与关键源码
+├─ android/                 # Android WebView 壳工程（Gradle，npm run apk:build 产出 APK）
+├─ .github/workflows/       # CI：tag/手动触发构建 Web/Windows/Linux/Android 产物
 ├─ src/
 │  ├─ api/gitlab.ts         # GitLab REST API v4 封装（项目/分支/提交/文件/Issue/MR/CI/Release/SSH）
 │  ├─ api/request.ts        # axios 实例、并发门闩、重试、错误归一化
@@ -67,7 +68,12 @@ npm run build             # 先产出 dist
 npm run electron:dev      # 开发启动（可设 VITE_DEV_SERVER_URL）
 npm run electron:build    # electron-builder 打包 NSIS / 便携版
 
-# Android APK：npm run build 后按 android/README.md 将 dist 放入 assets 编译
+# Android APK（需 JDK17 + Android SDK 34 + Gradle 8.7）
+npm run apk:build         # 同步版本 → 构建 dist → 复制进壳 → assembleDebug
+
+# GitHub Actions CI（.github/workflows/build.yml）
+# 推 v* tag 或手动触发，自动构建：Web dist / Windows(exe) / Linux(AppImage) / Android(apk)
+# tag 触发时自动创建 GitHub Release 并附带全部安装包
 ```
 
 ## 六、使用流程

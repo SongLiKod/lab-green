@@ -1,73 +1,38 @@
-# Android WebView 壳
+# Android 壳工程（WebView）
 
-复用同一套前端代码：`npm run build` 后将 `dist/` 内容复制到本目录 `app/src/main/assets/dist/`，
-用 Android Studio 打开本工程编译 APK 即可。
+标准 Gradle 工程，复用同一套前端代码。`com.labgreen.app`。
 
-## 关键文件
+## 本地构建 APK
 
-`app/src/main/java/com/labgreen/app/MainActivity.java`
-
-```java
-package com.labgreen.app;
-
-import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.os.Bundle;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-
-public class MainActivity extends Activity {
-    @SuppressLint("SetJavaScriptEnabled")
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        WebView wv = new WebView(this);
-        WebSettings s = wv.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);   // localStorage 必需
-        wv.setWebViewClient(new WebViewClient());
-        wv.loadUrl("file:///android_asset/dist/index.html");
-        setContentView(wv);
-    }
-    @Override
-    public void onBackPressed() {
-        WebView wv = (WebView) findViewById(android.R.id.content);
-        if (wv != null && wv.canGoBack()) wv.goBack(); else super.onBackPressed();
-    }
-}
+```bash
+npm run apk:build
 ```
 
-`app/src/main/AndroidManifest.xml`
+流程：`sync-android-version.js`（package.json 版本 → gradle versionName/versionCode）
+→ `npm run build`（产出 dist）→ `copy-dist.js`（dist → app/src/main/assets/dist）
+→ `gradle assembleDebug`。
 
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.labgreen.app">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <application android:label="LabGreen" android:usesCleartextTraffic="true">
-        <activity android:name=".MainActivity" android:exported="true"
-                  android:configChanges="orientation|screenSize|keyboardHidden">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>
+产物：`android/app/build/outputs/apk/debug/app-debug.apk`
+
+要求：JDK 17、Android SDK 34（platform + build-tools）、Gradle 8.7+（或用 Android Studio 打开自动生成 wrapper）。
+
+## CI 构建
+
+推 `v*` tag 或在 Actions 页手动触发 `build-apps` 工作流，android job 会自动完成
+上面全流程并上传 APK 产物（正式版签名需自行在 `app/build.gradle` 配置 signingConfig）。
+
+## 结构
+
+```
+android/
+├─ settings.gradle / build.gradle / gradle.properties
+└─ app/
+   ├─ build.gradle              # AGP 8.5.2 / compileSdk 34 / minSdk 24
+   └─ src/main/
+      ├─ AndroidManifest.xml
+      ├─ java/com/labgreen/app/MainActivity.java   # WebView 壳 + 原生下载 + 文件选择 + AndroidBridge
+      ├─ res/values/strings.xml
+      └─ assets/dist/           # 前端构建产物（copy-dist.js 生成，不入库）
 ```
 
-`app/build.gradle`（module）要点：
-
-```gradle
-android {
-    compileSdk 34
-    defaultConfig { applicationId "com.labgreen.app"; minSdk 24; targetSdk 34; versionCode 10000; versionName "1.0.0" }
-    buildTypes { release { minifyEnabled false } }
-}
-dependencies { }
-```
-
-说明：
-- 前端通过 `window.AndroidBridge` 是否存在识别 Android 形态（见 `src/utils/misc.ts` 的 `isMobile`）；
-  若需要原生下载等能力，可在壳内 `addJavascriptInterface` 注入 `AndroidBridge` 对象。
-- 屏幕宽度 ≤768px 时前端自动切换移动 UI（Vant）。
+前端通过 `window.AndroidBridge` 识别 Android 形态（`src/utils/misc.ts`），≤768px 自动使用 Vant 移动 UI。
